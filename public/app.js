@@ -3,20 +3,39 @@
  * 1. Ultimate Tic-Tac-Toe 9x9
  * 2. Snakes & Ladders (10x10)
  * 3. Ludo (15x15)
- * With Real-Time Multiplayer, Universal Undo Approval System & AI Bots
+ * Universal Undo Approval System, Procedural Audio & AI Bots
  */
 
 (function () {
   'use strict';
 
   // ==========================================
+  // SAFE ENGINE & CONSTANT REFERENCES
+  // ==========================================
+  const UltimateTTT = window.UltimateTTT;
+  const SnakesGame = window.SnakesGame;
+  const LudoGame = window.LudoGame;
+
+  const SNAKES_MAP = window.SNAKES || {
+    17: 7, 54: 34, 62: 19, 64: 60, 87: 24, 93: 73, 95: 75, 99: 78
+  };
+  const LADDERS_MAP = window.LADDERS || {
+    4: 14, 9: 31, 20: 38, 28: 84, 40: 59, 51: 67, 63: 81, 71: 91
+  };
+  const TTT_BOARD_NAMES = window.BOARD_NAMES || [
+    'Top-Left',   'Top-Center',   'Top-Right',
+    'Mid-Left',   'Center',       'Mid-Right',
+    'Bottom-Left','Bottom-Center','Bottom-Right'
+  ];
+
+  // ==========================================
   // STATE MANAGEMENT
   // ==========================================
   let activeGame = 'ttt9x9'; // 'ttt9x9' | 'ludo' | 'snakes'
-  let currentMode = 'online'; // 'online' | 'ai' | 'local'
+  let currentMode = 'local'; // 'local' default for immediate responsiveness, or 'online' / 'ai'
   let aiDifficulty = 'medium';
 
-  // Game Engines
+  // Game Engine Instances
   let tttGame = new UltimateTTT();
   let snakesGame = new SnakesGame(2);
   let ludoGame = new LudoGame(2, 4);
@@ -29,7 +48,21 @@
   let onlineRoomData = null;
   let undoCountdownInterval = null;
 
-  const sound = window.soundFx;
+  const sound = window.soundFx || {
+    init: () => {},
+    toggleMute: () => false,
+    playMove: () => {},
+    playDiceRoll: () => {},
+    playLadder: () => {},
+    playSnake: () => {},
+    playCapture: () => {},
+    playBoardWin: () => {},
+    playGameWin: () => {},
+    playUndoRequest: () => {},
+    playUndoAccepted: () => {},
+    playUndoRejected: () => {}
+  };
+
   const DICE_ICONS = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
 
   // ==========================================
@@ -78,7 +111,6 @@
   const spectatorCount = document.getElementById('spectatorCount');
   const aiBar = document.getElementById('aiBar');
 
-  // Sidebar & Modals
   const tabBtns = document.querySelectorAll('.tab-btn');
   const tabContents = document.querySelectorAll('.tab-content');
   const historyList = document.getElementById('historyList');
@@ -112,17 +144,22 @@
   // INITIALIZATION
   // ==========================================
   function init() {
-    createTTTBoardDOM();
-    createSnakesBoardDOM();
-    createLudoBoardDOM();
+    try {
+      createTTTBoardDOM();
+      createSnakesBoardDOM();
+      createLudoBoardDOM();
 
-    setupEventListeners();
-    checkURLParams();
-    switchGame(activeGame);
+      setupEventListeners();
+      checkURLParams();
+      setMode(currentMode);
+      switchGame(activeGame);
+    } catch (err) {
+      console.error('Initialization error:', err);
+    }
   }
 
   // ==========================================
-  // BOARD DOM GENERATORS
+  // BOARD DOM BUILDERS
   // ==========================================
   function createTTTBoardDOM() {
     boardContainer.innerHTML = '';
@@ -145,18 +182,14 @@
 
   function createSnakesBoardDOM() {
     snakesGrid.innerHTML = '';
-    // Generate 100 tiles in boustrophedon (snake winding) order
-    // Row 10 (top): 100 -> 91, Row 9: 81 -> 90, ..., Row 1 (bottom): 1 -> 10
     const rows = [];
     for (let r = 9; r >= 0; r--) {
       const rowTiles = [];
       const start = r * 10 + 1;
       const end = start + 9;
       if (r % 2 === 1) {
-        // Even from bottom (10, 8, 6, 4, 2): right to left
         for (let n = end; n >= start; n--) rowTiles.push(n);
       } else {
-        // Odd from bottom (9, 7, 5, 3, 1): left to right
         for (let n = start; n <= end; n--) rowTiles.push(n);
       }
       rows.push(rowTiles);
@@ -173,18 +206,17 @@
       numLabel.textContent = num;
       tile.appendChild(numLabel);
 
-      // Icon for special tiles
-      if (SNAKES[num]) {
+      if (SNAKES_MAP[num]) {
         const icon = document.createElement('span');
         icon.className = 'tile-icon';
         icon.textContent = '🐍';
-        icon.title = `Snake down to ${SNAKES[num]}`;
+        icon.title = `Snake down to ${SNAKES_MAP[num]}`;
         tile.appendChild(icon);
-      } else if (LADDERS[num]) {
+      } else if (LADDERS_MAP[num]) {
         const icon = document.createElement('span');
         icon.className = 'tile-icon';
         icon.textContent = '🪜';
-        icon.title = `Ladder up to ${LADDERS[num]}`;
+        icon.title = `Ladder up to ${LADDERS_MAP[num]}`;
         tile.appendChild(icon);
       }
 
@@ -195,6 +227,9 @@
   }
 
   function drawSnakesAndLaddersSVG() {
+    const rectGrid = snakesGrid.getBoundingClientRect();
+    if (!rectGrid.width || !rectGrid.height) return;
+
     snakesSvg.innerHTML = '';
     const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
     defs.innerHTML = `
@@ -209,15 +244,11 @@
     `;
     snakesSvg.appendChild(defs);
 
-    // Draw lines for each ladder
-    for (const [startStr, end] of Object.entries(LADDERS)) {
-      const start = Number(startStr);
-      drawLineBetweenTiles(start, end, 'ladder');
+    for (const [startStr, end] of Object.entries(LADDERS_MAP)) {
+      drawLineBetweenTiles(Number(startStr), end, 'ladder');
     }
-    // Draw curves for each snake
-    for (const [headStr, tail] of Object.entries(SNAKES)) {
-      const head = Number(headStr);
-      drawLineBetweenTiles(head, tail, 'snake');
+    for (const [headStr, tail] of Object.entries(SNAKES_MAP)) {
+      drawLineBetweenTiles(Number(headStr), tail, 'snake');
     }
   }
 
@@ -227,6 +258,8 @@
     if (!elA || !elB) return;
 
     const rectGrid = snakesGrid.getBoundingClientRect();
+    if (!rectGrid.width || !rectGrid.height) return;
+
     const rectA = elA.getBoundingClientRect();
     const rectB = elB.getBoundingClientRect();
 
@@ -258,10 +291,8 @@
   function createLudoBoardDOM() {
     ludoContainer.innerHTML = '';
 
-    // Yards (Red, Green, Blue, Yellow)
     const yardRed = document.createElement('div');
     yardRed.className = 'ludo-yard yard-red';
-    yardRed.dataset.yard = '0';
     for (let i = 0; i < 4; i++) {
       const token = document.createElement('div');
       token.className = 'ludo-token token-red';
@@ -275,7 +306,6 @@
 
     const yardGreen = document.createElement('div');
     yardGreen.className = 'ludo-yard yard-green';
-    yardGreen.dataset.yard = '1';
     for (let i = 0; i < 4; i++) {
       const token = document.createElement('div');
       token.className = 'ludo-token token-green';
@@ -289,7 +319,6 @@
 
     const yardBlue = document.createElement('div');
     yardBlue.className = 'ludo-yard yard-blue';
-    yardBlue.dataset.yard = '3';
     for (let i = 0; i < 4; i++) {
       const token = document.createElement('div');
       token.className = 'ludo-token token-blue';
@@ -303,7 +332,6 @@
 
     const yardYellow = document.createElement('div');
     yardYellow.className = 'ludo-yard yard-yellow';
-    yardYellow.dataset.yard = '2';
     for (let i = 0; i < 4; i++) {
       const token = document.createElement('div');
       token.className = 'ludo-token token-yellow';
@@ -315,21 +343,14 @@
     }
     ludoContainer.appendChild(yardYellow);
 
-    // Center Goal
     const centerGoal = document.createElement('div');
     centerGoal.className = 'ludo-center-goal';
     centerGoal.textContent = '🏆';
     ludoContainer.appendChild(centerGoal);
 
-    // Grid coordinates mapping for 52 path cells + home tracks
-    renderLudoGridCells();
-  }
-
-  function renderLudoGridCells() {
-    // Generate 15x15 standard track coordinates
+    // 15x15 standard track squares
     for (let r = 1; r <= 15; r++) {
       for (let c = 1; c <= 15; c++) {
-        // Skip yard and center areas
         if ((r <= 6 && c <= 6) || (r <= 6 && c >= 10) ||
             (r >= 10 && c <= 6) || (r >= 10 && c >= 10) ||
             (r >= 7 && r <= 9 && c >= 7 && c <= 9)) {
@@ -343,13 +364,11 @@
         cell.dataset.r = r;
         cell.dataset.c = c;
 
-        // Home corridors
         if (c >= 2 && c <= 6 && r === 8) cell.classList.add('ludo-home-red');
         if (r >= 2 && r <= 6 && c === 8) cell.classList.add('ludo-home-green');
         if (c >= 10 && c <= 14 && r === 8) cell.classList.add('ludo-home-yellow');
         if (r >= 10 && r <= 14 && c === 8) cell.classList.add('ludo-home-blue');
 
-        // Star safety squares
         if ((r === 7 && c === 2) || (r === 2 && c === 9) || (r === 9 && c === 14) || (r === 14 && c === 7)) {
           cell.classList.add('ludo-star');
         }
@@ -406,24 +425,28 @@
     // Restart / New Game
     newGameBtn.addEventListener('click', () => {
       if (currentMode === 'online') {
-        sendWsMessage({ type: 'REQUEST_REMATCH' });
-        showToast('Rematch request sent to opponent', 'gold');
+        if (!roomId) {
+          showToast('Click Create New Room to start an online game', 'gold');
+        } else {
+          sendWsMessage({ type: 'REQUEST_REMATCH' });
+          showToast('Rematch request sent to opponent', 'gold');
+        }
       } else {
         restartCurrentGame();
       }
     });
 
-    // Undo button (Universal across all 3 games)
+    // Undo button
     undoBtn.addEventListener('click', handleUndoClick);
 
     // Resign button
     resignBtn.addEventListener('click', () => {
-      if (confirm('Forfeit this match?')) {
+      if (confirm('Restart and forfeit current match?')) {
         restartCurrentGame();
       }
     });
 
-    // Dice Roll button (for Snakes and Ludo)
+    // Dice Roll button
     rollDiceBtn.addEventListener('click', handleDiceRoll);
     diceBox.addEventListener('click', handleDiceRoll);
 
@@ -451,7 +474,7 @@
       });
     });
 
-    // Undo Modal Actions (Opponent response)
+    // Undo Modal Actions
     acceptUndoBtn.addEventListener('click', () => {
       if (ws) {
         sendWsMessage({ type: 'RESPOND_UNDO', accept: true });
@@ -477,7 +500,7 @@
 
     rematchBtn.addEventListener('click', () => {
       gameOverModal.classList.remove('open');
-      if (currentMode === 'online') {
+      if (currentMode === 'online' && roomId) {
         sendWsMessage({ type: 'REQUEST_REMATCH' });
       } else {
         restartCurrentGame();
@@ -504,7 +527,7 @@
     emoteBtns.forEach(btn => {
       btn.addEventListener('click', () => {
         const emote = btn.dataset.emote;
-        if (currentMode === 'online') {
+        if (currentMode === 'online' && roomId) {
           sendWsMessage({ type: 'SEND_CHAT', text: emote });
         } else {
           appendChatMessage('You', '1', emote);
@@ -517,7 +540,7 @@
       e.preventDefault();
       const text = chatInput.value.trim();
       if (!text) return;
-      if (currentMode === 'online') {
+      if (currentMode === 'online' && roomId) {
         sendWsMessage({ type: 'SEND_CHAT', text });
       } else {
         appendChatMessage('Player', '1', text);
@@ -536,7 +559,7 @@
     const roomParam = params.get('room');
 
     if (gameParam && ['ttt9x9', 'ludo', 'snakes'].includes(gameParam)) {
-      switchGame(gameParam);
+      activeGame = gameParam;
     }
     if (roomParam) {
       setMode('online');
@@ -554,15 +577,11 @@
       btn.classList.toggle('active', btn.dataset.game === gameType);
     });
 
-    // Hide/show boards
     boardContainer.style.display = (gameType === 'ttt9x9') ? 'grid' : 'none';
     snakesContainer.style.display = (gameType === 'snakes') ? 'flex' : 'none';
     ludoContainer.style.display = (gameType === 'ludo') ? 'grid' : 'none';
 
-    // Dice panel visibility
     dicePanel.style.display = (gameType === 'snakes' || gameType === 'ludo') ? 'flex' : 'none';
-
-    // AI bar visibility
     aiBar.style.display = (currentMode === 'ai' && gameType === 'ttt9x9') ? 'flex' : 'none';
 
     if (gameType === 'ttt9x9') {
@@ -577,7 +596,7 @@
       headerSubtitle.textContent = 'Classic 100 Squares';
       player1Badge.textContent = '🔴';
       player2Badge.textContent = '🔵';
-      setTimeout(drawSnakesAndLaddersSVG, 50);
+      setTimeout(drawSnakesAndLaddersSVG, 80);
       renderSnakesGameState(snakesGame.getState());
       renderHistory(snakesGame.moveHistory);
     } else if (gameType === 'ludo') {
@@ -615,6 +634,8 @@
       undoBtnText.textContent = 'Undo Turn';
       restartCurrentGame();
     }
+
+    aiBar.style.display = (currentMode === 'ai' && activeGame === 'ttt9x9') ? 'flex' : 'none';
   }
 
   function restartCurrentGame() {
@@ -646,7 +667,6 @@
     ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-      console.log('Connected to real-time multiplayer server');
       if (roomId) joinRoom(roomId);
     };
 
@@ -735,7 +755,6 @@
         break;
       }
 
-      // TTT Move
       case 'MOVE_PLAYED': {
         sound.playMove(msg.move.player);
         renderTTTGameState(msg.gameState);
@@ -744,7 +763,6 @@
         break;
       }
 
-      // Snakes Move
       case 'SNAKES_MOVE': {
         sound.playDiceRoll();
         animateDiceValue(msg.move.dice);
@@ -756,7 +774,6 @@
         break;
       }
 
-      // Ludo Roll & Move
       case 'LUDO_ROLLED': {
         sound.playDiceRoll();
         animateDiceValue(msg.dice);
@@ -779,7 +796,6 @@
         break;
       }
 
-      // Universal Undo Handlers
       case 'UNDO_REQUEST_SENT': {
         waitingUndoModal.classList.add('open');
         break;
@@ -890,6 +906,10 @@
     sound.init();
 
     if (currentMode === 'online') {
+      if (!roomId) {
+        showToast("Click '➕ Create New Room' or switch to 'Pass & Play' to play now!", 'gold');
+        return;
+      }
       if (myOnlineRole !== '1' && myOnlineRole !== '2') return;
       sendWsMessage({ type: 'MAKE_MOVE', boardIndex, cellIndex });
     } else if (currentMode === 'ai') {
@@ -910,7 +930,9 @@
 
       setTimeout(() => {
         if (tttGame.winner || currentMode !== 'ai') return;
-        const aiMove = window.UltimateAI.getAIMove(tttGame, aiDifficulty, 'O');
+        const aiMove = (window.UltimateAI && window.UltimateAI.getAIMove) 
+          ? window.UltimateAI.getAIMove(tttGame, aiDifficulty, 'O')
+          : null;
         if (aiMove) {
           const aiRes = tttGame.makeMove(aiMove.boardIndex, aiMove.cellIndex, 'O');
           if (aiRes.valid) {
@@ -925,7 +947,7 @@
           }
         }
       }, 400);
-    } else if (currentMode === 'local') {
+    } else { // Local Pass & Play
       const p = tttGame.currentTurn;
       const res = tttGame.makeMove(boardIndex, cellIndex, p);
       if (!res.valid) return showToast(res.reason, 'danger');
@@ -957,13 +979,15 @@
       turnInstructionText.textContent = `${currentTurn}'s Turn — Free Move! Play anywhere open.`;
     } else {
       turnInstructionIcon.textContent = '🎯';
-      turnInstructionText.textContent = `${currentTurn}'s Turn — Play in: ${BOARD_NAMES[activeBoard]} Board`;
+      turnInstructionText.textContent = `${currentTurn}'s Turn — Play in: ${TTT_BOARD_NAMES[activeBoard]} Board`;
     }
 
     for (let b = 0; b < 9; b++) {
       const miniEl = boardContainer.children[b];
+      if (!miniEl) continue;
+
       const isDecided = macroBoard[b] !== null;
-      const isValid = validBoards.includes(b);
+      const isValid = validBoards && validBoards.includes(b);
 
       miniEl.classList.toggle('active-target', isValid && !winner);
       miniEl.classList.toggle('inactive-board', !isValid && !isDecided && !winner);
@@ -983,6 +1007,8 @@
 
       for (let c = 0; c < 9; c++) {
         const cellEl = miniEl.children[c];
+        if (!cellEl) continue;
+
         const val = boards[b][c];
         cellEl.className = 'cell';
         cellEl.textContent = val || '';
@@ -1007,6 +1033,10 @@
 
     if (activeGame === 'snakes') {
       if (currentMode === 'online') {
+        if (!roomId) {
+          showToast("Click '➕ Create New Room' or switch to 'Pass & Play' to play now!", 'gold');
+          return;
+        }
         sendWsMessage({ type: 'ROLL_SNAKES' });
       } else if (currentMode === 'ai') {
         if (snakesGame.currentTurn !== 0) return;
@@ -1020,23 +1050,26 @@
             executeSnakesLocalStep(botRes);
           }, 800);
         }
-      } else if (currentMode === 'local') {
+      } else { // Local Pass & Play
         const res = snakesGame.rollAndMove(snakesGame.currentTurn);
         executeSnakesLocalStep(res);
       }
     } else if (activeGame === 'ludo') {
       if (currentMode === 'online') {
+        if (!roomId) {
+          showToast("Click '➕ Create New Room' or switch to 'Pass & Play' to play now!", 'gold');
+          return;
+        }
         sendWsMessage({ type: 'ROLL_LUDO' });
       } else if (currentMode === 'ai') {
         if (ludoGame.currentTurn !== 0) return;
         const res = ludoGame.rollDice(0);
         executeLudoRollStep(res);
 
-        // Auto move if only 1 token or yard entry
-        if (res.validTokens.length === 1) {
+        if (res.validTokens && res.validTokens.length === 1) {
           setTimeout(() => handleLudoTokenClick(0, res.validTokens[0]), 300);
         }
-      } else if (currentMode === 'local') {
+      } else { // Local Pass & Play
         const res = ludoGame.rollDice(ludoGame.currentTurn);
         executeLudoRollStep(res);
       }
@@ -1079,11 +1112,10 @@
       diceResultLabel.textContent = `Rolled: ${lastDice} ${DICE_ICONS[lastDice - 1]}`;
     }
 
-    // Render player tokens on the board
     snakesContainer.querySelectorAll('.player-token-snakes').forEach(t => t.remove());
 
     positions.forEach((pos, idx) => {
-      if (pos === 0) return; // not started
+      if (pos === 0) return;
       const tileEl = snakesGrid.querySelector(`[data-tile="${pos}"]`);
       if (tileEl) {
         const token = document.createElement('div');
@@ -1109,6 +1141,10 @@
     sound.init();
 
     if (currentMode === 'online') {
+      if (!roomId) {
+        showToast("Click '➕ Create New Room' or switch to 'Pass & Play' to play now!", 'gold');
+        return;
+      }
       sendWsMessage({ type: 'MOVE_LUDO_TOKEN', tokenIndex });
     } else if (currentMode === 'ai') {
       if (ludoGame.currentTurn !== 0) return;
@@ -1128,11 +1164,10 @@
         return;
       }
 
-      // Bot turn
       if (!res.extraTurn) {
         setTimeout(triggerLudoBotTurn, 700);
       }
-    } else if (currentMode === 'local') {
+    } else { // Local Pass & Play
       const res = ludoGame.moveToken(tokenIndex, ludoGame.currentTurn);
       if (!res.valid) return;
 
@@ -1176,7 +1211,7 @@
 
   function renderLudoGameState(state) {
     if (!state) return;
-    const { tokens, currentTurn, lastDice, diceRolled, validTokens, winner } = state;
+    const { currentTurn, lastDice, diceRolled, validTokens, winner } = state;
 
     playerXCard.classList.toggle('active-turn', currentTurn === 0 && winner === null);
     playerOCard.classList.toggle('active-turn', currentTurn === 1 && winner === null);
@@ -1196,9 +1231,8 @@
       diceResultLabel.textContent = `Rolled: ${lastDice} ${DICE_ICONS[lastDice - 1]}`;
     }
 
-    // Highlight movable tokens
     ludoContainer.querySelectorAll('.ludo-token').forEach(t => t.classList.remove('pulse-move'));
-    if (diceRolled && validTokens.length > 0) {
+    if (diceRolled && validTokens && validTokens.length > 0) {
       validTokens.forEach(tIdx => {
         const el = ludoContainer.querySelector(`.ludo-token[data-player="${currentTurn}"][data-token="${tIdx}"]`);
         if (el) el.classList.add('pulse-move');
@@ -1221,6 +1255,10 @@
     sound.init();
 
     if (currentMode === 'online') {
+      if (!roomId) {
+        showToast("Not in a room", 'danger');
+        return;
+      }
       sendWsMessage({ type: 'REQUEST_UNDO' });
     } else {
       if (activeGame === 'ttt9x9') {
@@ -1273,7 +1311,7 @@
       }
     }
 
-    if (moves.length === 0) return;
+    if (!moves || moves.length === 0) return;
     const emptyNotice = historyList.querySelector('div[style*="text-align: center"]');
     if (emptyNotice) emptyNotice.remove();
 
@@ -1321,6 +1359,7 @@
   }
 
   function renderRulesTabContent() {
+    if (!rulesContent) return;
     if (activeGame === 'ttt9x9') {
       rulesContent.innerHTML = `
         <h3 style="color:#fff; margin-bottom:8px;">Ultimate 9×9 Rules</h3>

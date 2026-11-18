@@ -830,7 +830,7 @@ setInterval(() => {
   }
 }, 30000);
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`===============================================`);
   console.log(`🎮 MULTIPLAYER BOARD GAME HUB (TTT 9X9, LUDO, SNAKES)`);
   console.log(`📡 Server running at http://localhost:${PORT}`);
