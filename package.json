@@ -1,0 +1,21 @@
+{
+  "name": "ultimate-tic-tac-toe-9x9",
+  "version": "1.0.0",
+  "description": "Real-time Multiplayer 9x9 Ultimate Tic-Tac-Toe with Interactive Undo Request / Accept / Reject system",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node test/test-game.js"
+  },
+  "keywords": [
+    "ultimate-tic-tac-toe",
+    "9x9",
+    "multiplayer",
+    "real-time",
+    "websockets",
+    "undo"
+  ],
+  "author": "Antigravity",
+  "license": "MIT"
+}
