@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Ultimate Tic-Tac-Toe 9×9 | Real-Time Multiplayer</title>
+  <title>Multiplayer Board Game Hub | Ultimate 9×9, Ludo, Snakes & Ladders</title>
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,25 +20,38 @@
         <span></span><span></span><span></span>
       </div>
       <div class="brand-text">
-        <h1>ULTIMATE 9×9</h1>
-        <span>Tic-Tac-Toe</span>
+        <h1 id="headerTitle">GAMES HUB</h1>
+        <span id="headerSubtitle">Multiplayer Arena</span>
       </div>
     </div>
 
-    <!-- Mode Selector (Desktop) -->
+    <!-- Game Hub Selector Tabs -->
+    <div class="game-hub-nav">
+      <button class="game-nav-btn active" data-game="ttt9x9">
+        <span>⚔️</span> Ultimate 9×9
+      </button>
+      <button class="game-nav-btn" data-game="ludo">
+        <span>🎲</span> Ludo
+      </button>
+      <button class="game-nav-btn" data-game="snakes">
+        <span>🐍</span> Snakes & Ladders
+      </button>
+    </div>
+
+    <!-- Play Mode Selector -->
     <div class="mode-selector">
       <button class="mode-btn active" data-mode="online">
         <span>🌐</span> Online Live
       </button>
       <button class="mode-btn" data-mode="ai">
-        <span>🤖</span> Play vs AI
+        <span>🤖</span> Vs AI
       </button>
       <button class="mode-btn" data-mode="local">
         <span>👥</span> Pass & Play
       </button>
     </div>
 
-    <!-- Header Actions -->
+    <!-- Utility Controls -->
     <div class="header-actions">
       <button id="soundToggle" class="icon-btn" title="Toggle Sound">🔊</button>
       <button id="rulesBtn" class="icon-btn" title="How to Play / Rules">📖</button>
@@ -50,15 +63,15 @@
   <main class="main-container">
     <div class="game-stage">
 
-      <!-- AI Difficulty Bar (Only shown in AI mode) -->
+      <!-- AI Difficulty Bar (Only shown in AI mode for TTT) -->
       <div id="aiBar" class="ai-difficulty-bar" style="display: none;">
         <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 700;">AI LEVEL:</span>
         <button class="ai-diff-btn" data-diff="easy">Easy</button>
         <button class="ai-diff-btn active" data-diff="medium">Medium</button>
-        <button class="ai-diff-btn" data-diff="hard">Hard (Minimax)</button>
+        <button class="ai-diff-btn" data-diff="hard">Hard</button>
       </div>
 
-      <!-- Online Multiplayer Lobby Panel (When NOT in a room) -->
+      <!-- Online Multiplayer Lobby Panel -->
       <div id="onlineLobbyPanel" class="lobby-panel">
         <div class="lobby-group">
           <button id="createRoomBtn" class="btn-primary">
@@ -71,7 +84,7 @@
         </div>
       </div>
 
-      <!-- Online Room Active Bar (When IN an active room) -->
+      <!-- Online Room Active Bar -->
       <div id="activeRoomBar" class="room-bar" style="display: none;">
         <div class="room-bar-info">
           <span style="font-size: 0.8rem; color: var(--text-dim); font-weight: 700;">ROOM:</span>
@@ -87,11 +100,11 @@
 
       <!-- Players VS Banner -->
       <div class="players-banner">
-        <!-- Player X Card -->
+        <!-- Player 1 Card -->
         <div id="playerXCard" class="player-card player-x active-turn">
-          <div class="player-badge">X</div>
+          <div id="player1Badge" class="player-badge">1</div>
           <div class="player-meta">
-            <span id="playerXName" class="player-name">Player 1 (X)</span>
+            <span id="playerXName" class="player-name">Player 1</span>
             <span id="playerXStatus" class="player-status">
               <span class="status-dot"></span> Online
             </span>
@@ -100,11 +113,11 @@
 
         <div class="vs-pill">VS</div>
 
-        <!-- Player O Card -->
+        <!-- Player 2 Card -->
         <div id="playerOCard" class="player-card player-o">
-          <div class="player-badge">O</div>
+          <div id="player2Badge" class="player-badge">2</div>
           <div class="player-meta">
-            <span id="playerOName" class="player-name">Player 2 (O)</span>
+            <span id="playerOName" class="player-name">Player 2</span>
             <span id="playerOStatus" class="player-status">
               <span class="status-dot"></span> Waiting...
             </span>
@@ -112,20 +125,44 @@
         </div>
       </div>
 
-      <!-- Turn & Active Board Direction -->
+      <!-- Turn & Game Action Banner -->
       <div id="turnInstruction" class="turn-instruction">
         <span id="turnInstructionIcon">🎯</span>
-        <span id="turnInstructionText">X's Turn — Select any cell on any board to begin</span>
+        <span id="turnInstructionText">Player 1's Turn</span>
       </div>
 
-      <!-- 9x9 ULTIMATE TIC-TAC-TOE BOARD -->
+      <!-- DICE ROLLER PANEL (Shown for Ludo & Snakes) -->
+      <div id="dicePanel" class="dice-panel" style="display: none;">
+        <div id="diceBox" class="dice-box">🎲</div>
+        <button id="rollDiceBtn" class="btn-roll">
+          <span>🎲</span> Roll Dice
+        </button>
+        <span id="diceResultLabel" style="font-weight: 700; color: var(--text-main); font-size: 0.95rem;">
+          Click Roll!
+        </span>
+      </div>
+
+      <!-- GAME BOARD 1: ULTIMATE TIC-TAC-TOE 9X9 -->
       <div id="boardContainer" class="board-container">
-        <!-- 9 Mini-Boards (0..8) will be dynamically injected here -->
+        <!-- 9 Mini-Boards (0..8) -->
       </div>
 
-      <!-- Control Buttons Bar -->
+      <!-- GAME BOARD 2: SNAKES & LADDERS (10x10) -->
+      <div id="snakesContainer" class="snakes-board-wrapper" style="display: none;">
+        <div id="snakesGrid" class="snakes-grid">
+          <!-- 100 tiles dynamically generated -->
+        </div>
+        <svg id="snakesSvg" class="snakes-svg-overlay"></svg>
+      </div>
+
+      <!-- GAME BOARD 3: LUDO (15x15) -->
+      <div id="ludoContainer" class="ludo-board-wrapper" style="display: none;">
+        <!-- 15x15 Ludo board cells and yards dynamically injected -->
+      </div>
+
+      <!-- Universal Action Bar -->
       <div class="controls-bar">
-        <!-- UNDO BUTTON: Core Requirement -->
+        <!-- UNDO BUTTON: Core Requirement across all games -->
         <button id="undoBtn" class="action-btn btn-undo" disabled>
           <span>↩️</span> <span id="undoBtnText">Request Undo</span>
         </button>
@@ -174,7 +211,7 @@
           <button class="emote-btn" data-emote="🧠">🧠</button>
           <button class="emote-btn" data-emote="👏">👏</button>
           <button class="emote-btn" data-emote="💀">💀</button>
-          <button class="emote-btn" data-emote="GG">🏆</button>
+          <button class="emote-btn" data-emote="🏆">🏆</button>
         </div>
         <form id="chatForm" class="chat-input-bar">
           <input type="text" id="chatInput" class="chat-input" placeholder="Type a message..." maxlength="120">
@@ -182,25 +219,11 @@
         </form>
       </div>
 
-      <!-- Tab 3: Quick Rules Guide -->
+      <!-- Tab 3: Rules Guide -->
       <div id="tabRules" class="tab-content" style="padding: 16px; font-size: 0.85rem; line-height: 1.5; color: var(--text-muted);">
-        <h3 style="color: var(--text-main); margin-bottom: 8px; font-size: 1rem;">How Ultimate 9×9 Works</h3>
-        <p style="margin-bottom: 10px;">
-          The board consists of <strong>9 mini-boards</strong> arranged in a 3×3 grid. Each mini-board has 9 cells.
-        </p>
-        <div style="background: rgba(255,255,255,0.04); padding: 10px; border-radius: var(--radius-sm); margin-bottom: 12px; border-left: 3px solid var(--color-gold);">
-          <strong style="color: var(--color-gold);">The Core Rule:</strong><br>
-          Whichever <em>micro cell</em> you pick determines the <em>macro mini-board</em> your opponent must play in next!
+        <div id="rulesContent">
+          <!-- Dynamic rules injected based on active game -->
         </div>
-        <p style="margin-bottom: 8px;">
-          <strong>🎯 Wildcard Free Move:</strong> If sent to a board that is already won or full, you can play in <em>any open mini-board</em>!
-        </p>
-        <p style="margin-bottom: 8px;">
-          <strong>🏆 Winning:</strong> Win 3 mini-boards in a row (horizontal, vertical, or diagonal) to win the entire game!
-        </p>
-        <p>
-          <strong>↩️ Undo Requests:</strong> In online multiplayer, clicking <em>Request Undo</em> sends an alert to your opponent. If they accept, your last move is rolled back!
-        </p>
       </div>
     </aside>
   </main>
@@ -212,19 +235,19 @@
   <!-- 1. INCOMING UNDO REQUEST MODAL (FOR OPPONENT) -->
   <div id="incomingUndoModal" class="modal-overlay">
     <div class="modal-card undo-modal">
-      <div class="undo-modal-header">
-        <div class="undo-icon">↩️</div>
+      <div class="undo-modal-header" style="display: flex; align-items: center; gap: 12px;">
+        <div class="undo-icon" style="width: 44px; height: 44px; border-radius: 50%; background: rgba(245,158,11,0.15); color: var(--color-gold); display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">↩️</div>
         <div>
           <h2 style="font-size: 1.2rem; color: #fff;">Undo Request Received</h2>
           <p id="undoModalSubtitle" style="font-size: 0.85rem; color: var(--text-muted);">
-            Opponent wants to take back their last move.
+            Opponent wants to take back their last turn.
           </p>
         </div>
       </div>
 
       <div style="background: rgba(0,0,0,0.3); padding: 10px; border-radius: var(--radius-sm); font-size: 0.85rem; border: 1px solid var(--bg-card-border);">
-        <span style="color: var(--text-dim);">Requested Move:</span><br>
-        <strong id="undoMoveDetails" style="color: var(--color-gold);">Move #1 at Center</strong>
+        <span style="color: var(--text-dim);">Action to undo:</span><br>
+        <strong id="undoMoveDetails" style="color: var(--color-gold);">Last Action</strong>
       </div>
 
       <div class="undo-countdown-bar">
@@ -246,7 +269,7 @@
     </div>
   </div>
 
-  <!-- 2. OUTGOING UNDO REQUEST WAITING MODAL (FOR REQUESTER) -->
+  <!-- 2. OUTGOING UNDO REQUEST WAITING MODAL -->
   <div id="waitingUndoModal" class="modal-overlay">
     <div class="modal-card">
       <div style="text-align: center; padding: 10px 0;">
@@ -262,25 +285,14 @@
     </div>
   </div>
 
-  <!-- 3. GAME OVER VICTORY / DRAW MODAL -->
+  <!-- 3. GAME OVER MODAL -->
   <div id="gameOverModal" class="modal-overlay">
     <div class="modal-card" style="text-align: center;">
       <div id="gameOverEmoji" style="font-size: 3.5rem; margin-bottom: 8px;">🏆</div>
       <h2 id="gameOverTitle" style="font-size: 1.5rem; font-weight: 800; color: #fff;">Victory!</h2>
       <p id="gameOverSubtitle" style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 12px;">
-        Player X won the match!
+        Player 1 won the match!
       </p>
-
-      <div style="display: flex; gap: 10px; justify-content: center; margin-bottom: 16px;">
-        <div style="background: rgba(255,255,255,0.05); padding: 8px 16px; border-radius: var(--radius-sm);">
-          <span style="font-size: 0.72rem; color: var(--text-dim);">TOTAL MOVES</span><br>
-          <strong id="statsTotalMoves" style="font-size: 1.1rem; color: #fff;">0</strong>
-        </div>
-        <div style="background: rgba(255,255,255,0.05); padding: 8px 16px; border-radius: var(--radius-sm);">
-          <span style="font-size: 0.72rem; color: var(--text-dim);">DURATION</span><br>
-          <strong id="statsDuration" style="font-size: 1.1rem; color: #fff;">00:00</strong>
-        </div>
-      </div>
 
       <div style="display: flex; gap: 10px;">
         <button id="rematchBtn" class="btn-primary" style="flex: 1; padding: 12px; justify-content: center;">
@@ -297,39 +309,22 @@
   <div id="rulesModal" class="modal-overlay">
     <div class="modal-card" style="max-width: 520px;">
       <div style="display: flex; justify-content: space-between; align-items: center;">
-        <h2 style="font-size: 1.25rem; color: #fff;">Rules of Ultimate Tic-Tac-Toe</h2>
+        <h2 id="rulesModalTitle" style="font-size: 1.25rem; color: #fff;">How to Play</h2>
         <button id="closeRulesBtn" class="icon-btn">✕</button>
       </div>
-      <div style="max-height: 400px; overflow-y: auto; font-size: 0.88rem; line-height: 1.6; color: var(--text-muted); display: flex; flex-direction: column; gap: 12px;">
-        <p>
-          Ultimate Tic-Tac-Toe consists of a large 3×3 grid of 9 small Tic-Tac-Toe boards, totaling <strong>81 individual squares</strong>.
-        </p>
-        <div style="background: rgba(0,229,255,0.08); border-left: 3px solid var(--color-x); padding: 10px; border-radius: 4px;">
-          <strong style="color: var(--color-x);">How Moves Direct the Game:</strong><br>
-          Each move is made inside one mini-board. The exact cell you choose in that mini-board dictates which mini-board the next player must play in!
-          <br><em>Example: If you place your mark in the top-right square of any board, your opponent's next move MUST be placed somewhere in the top-right mini-board.</em>
-        </div>
-        <p>
-          <strong>🌟 Wildcard / Free Move:</strong> If you are sent to a mini-board that has already been won or is tied/full, you are granted a Free Move and can play in ANY unfinished mini-board!
-        </p>
-        <p>
-          <strong>🏅 Winning a Mini-Board:</strong> Getting 3-in-a-row inside a mini-board claims that board for your symbol ('X' or 'O').
-        </p>
-        <p>
-          <strong>🏆 Winning the Ultimate Match:</strong> Be the first player to win <strong>3 mini-boards in a row</strong> on the main grid (horizontal, vertical, or diagonal)!
-        </p>
-        <p>
-          <strong>↩️ The Undo System:</strong> You can click "Request Undo" at any time. In multiplayer, your opponent is prompted to accept or reject the undo. If accepted, the board seamlessly rewinds!
-        </p>
+      <div id="rulesModalBody" style="max-height: 400px; overflow-y: auto; font-size: 0.88rem; line-height: 1.6; color: var(--text-muted); display: flex; flex-direction: column; gap: 12px;">
+        <!-- Injected dynamically -->
       </div>
     </div>
   </div>
 
-  <!-- Dynamic Toast Alerts -->
+  <!-- Toast Container -->
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- Client JavaScript dependencies -->
   <script src="game-engine.js"></script>
+  <script src="snakes-engine.js"></script>
+  <script src="ludo-engine.js"></script>
   <script src="ai.js"></script>
   <script src="audio.js"></script>
   <script src="app.js"></script>

@@ -3,11 +3,12 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { UltimateTTT, BOARD_NAMES } = require('./public/game-engine.js');
+const { SnakesGame, SNAKES, LADDERS } = require('./public/snakes-engine.js');
+const { LudoGame } = require('./public/ludo-engine.js');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
-// MIME types for static file serving
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -19,9 +20,6 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon'
 };
 
-// ==========================================
-// ROOM & GAME STATE STORE
-// ==========================================
 const rooms = new Map();
 
 function generateRoomId() {
@@ -34,17 +32,30 @@ function generateRoomId() {
 }
 
 class GameRoom {
-  constructor(id) {
+  constructor(id, gameType = 'ttt9x9') {
     this.id = id;
-    this.game = new UltimateTTT();
-    this.playerX = null; // { token, name, socket, connected: true }
-    this.playerO = null; // { token, name, socket, connected: true }
-    this.spectators = new Map(); // token => { token, name, socket }
-    this.pendingUndo = null; // { requesterRole, moveIndex, timeoutTimer }
-    this.pendingRematch = null; // { requesterRole }
+    this.gameType = gameType; // 'ttt9x9' | 'snakes' | 'ludo'
+    this.initGameEngine();
+
+    this.playerX = null; // Player 1 (Red / X)
+    this.playerO = null; // Player 2 (Blue / O)
+    this.spectators = new Map();
+    this.pendingUndo = null;
+    this.pendingRematch = null;
     this.chat = [];
     this.createdAt = Date.now();
     this.lastActivity = Date.now();
+  }
+
+  initGameEngine() {
+    if (this.gameType === 'snakes') {
+      this.game = new SnakesGame(2);
+    } else if (this.gameType === 'ludo') {
+      this.game = new LudoGame(2, 4);
+    } else {
+      this.gameType = 'ttt9x9';
+      this.game = new UltimateTTT();
+    }
   }
 
   touch() {
@@ -53,19 +64,21 @@ class GameRoom {
 
   getPublicRoomInfo(forToken) {
     let role = 'spectator';
-    if (this.playerX && this.playerX.token === forToken) role = 'X';
-    if (this.playerO && this.playerO.token === forToken) role = 'O';
+    if (this.playerX && this.playerX.token === forToken) role = '1';
+    if (this.playerO && this.playerO.token === forToken) role = '2';
 
     return {
       roomId: this.id,
+      gameType: this.gameType,
       myRole: role,
-      playerX: this.playerX ? { name: this.playerX.name, connected: this.playerX.connected } : null,
-      playerO: this.playerO ? { name: this.playerO.name, connected: this.playerO.connected } : null,
+      player1: this.playerX ? { name: this.playerX.name, connected: this.playerX.connected } : null,
+      player2: this.playerO ? { name: this.playerO.name, connected: this.playerO.connected } : null,
       spectatorCount: this.spectators.size,
       gameState: this.game.getState(),
       pendingUndo: this.pendingUndo ? {
         requesterRole: this.pendingUndo.requesterRole,
         moveIndex: this.pendingUndo.moveIndex,
+        details: this.pendingUndo.details,
         expiresIn: Math.max(0, Math.round((this.pendingUndo.expiresAt - Date.now()) / 1000))
       } : null,
       pendingRematch: this.pendingRematch ? {
@@ -90,9 +103,9 @@ class GameRoom {
 
   sendToRole(role, messageObj) {
     const raw = JSON.stringify(messageObj);
-    if (role === 'X' && this.playerX && this.playerX.socket) {
+    if ((role === '1' || role === 'X') && this.playerX && this.playerX.socket) {
       sendWs(this.playerX.socket, raw);
-    } else if (role === 'O' && this.playerO && this.playerO.socket) {
+    } else if ((role === '2' || role === 'O') && this.playerO && this.playerO.socket) {
       sendWs(this.playerO.socket, raw);
     }
   }
@@ -206,13 +219,24 @@ const server = http.createServer((req, res) => {
   const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   let pathname = parsedUrl.pathname;
 
-  // API endpoints for stats or room creation
   if (pathname === '/api/create-room' && req.method === 'POST') {
-    const roomId = generateRoomId();
-    const room = new GameRoom(roomId);
-    rooms.set(roomId, room);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: true, roomId }));
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      let gameType = 'ttt9x9';
+      try {
+        if (body) {
+          const parsed = JSON.parse(body);
+          if (parsed.gameType) gameType = parsed.gameType;
+        }
+      } catch (e) {}
+
+      const roomId = generateRoomId();
+      const room = new GameRoom(roomId, gameType);
+      rooms.set(roomId, room);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, roomId, gameType }));
+    });
     return;
   }
 
@@ -222,17 +246,16 @@ const server = http.createServer((req, res) => {
     for (const [id, r] of rooms.entries()) {
       list.push({
         id,
-        hasPlayerX: !!r.playerX,
-        hasPlayerO: !!r.playerO,
-        spectators: r.spectators.size,
-        moves: r.game.moveHistory.length
+        gameType: r.gameType,
+        hasPlayer1: !!r.playerX,
+        hasPlayer2: !!r.playerO,
+        spectators: r.spectators.size
       });
     }
     res.end(JSON.stringify(list));
     return;
   }
 
-  // Static file handling
   if (pathname === '/' || pathname === '') {
     pathname = '/index.html';
   }
@@ -242,7 +265,6 @@ const server = http.createServer((req, res) => {
 
   fs.stat(filePath, (err, stats) => {
     if (err || !stats.isFile()) {
-      // Fallback to index.html for SPA routing
       const indexPath = path.join(PUBLIC_DIR, 'index.html');
       fs.readFile(indexPath, (indexErr, content) => {
         if (indexErr) {
@@ -268,7 +290,7 @@ const server = http.createServer((req, res) => {
 });
 
 // ==========================================
-// WEBSOCKET CONNECTION & GAME PROTOCOL
+// WEBSOCKET GAMEPLAY & UNIVERSAL UNDO PROTOCOL
 // ==========================================
 server.on('upgrade', (req, socket, head) => {
   const upgradeHeader = (req.headers['upgrade'] || '').toLowerCase();
@@ -299,7 +321,7 @@ server.on('upgrade', (req, socket, head) => {
     token: null,
     name: null,
     roomId: null,
-    role: null
+    role: null // '1' | '2' | 'spectator'
   };
 
   socket.on('data', (chunk) => {
@@ -308,13 +330,13 @@ server.on('upgrade', (req, socket, head) => {
     buffer = remainder;
 
     for (const frame of frames) {
-      if (frame.opcode === 0x8) { // CLOSE
+      if (frame.opcode === 0x8) {
         sendWs(socket, Buffer.alloc(0), 0x8);
         socket.end();
         break;
-      } else if (frame.opcode === 0x9) { // PING
-        sendWs(socket, frame.payload, 0xA); // PONG
-      } else if (frame.opcode === 0x1) { // TEXT
+      } else if (frame.opcode === 0x9) {
+        sendWs(socket, frame.payload, 0xA);
+      } else if (frame.opcode === 0x1) {
         try {
           const message = JSON.parse(frame.payload.toString('utf-8'));
           handleClientMessage(userSession, message);
@@ -340,7 +362,7 @@ function handleClientMessage(session, msg) {
 
   switch (type) {
     case 'JOIN_ROOM': {
-      let { roomId, playerName, playerToken } = msg;
+      let { roomId, playerName, playerToken, preferredGameType } = msg;
       roomId = (roomId || '').trim().toUpperCase();
       playerName = (playerName || 'Player').trim().slice(0, 20);
 
@@ -351,7 +373,7 @@ function handleClientMessage(session, msg) {
 
       let room = rooms.get(roomId);
       if (!room) {
-        room = new GameRoom(roomId);
+        room = new GameRoom(roomId, preferredGameType || 'ttt9x9');
         rooms.set(roomId, room);
       }
       room.touch();
@@ -361,29 +383,23 @@ function handleClientMessage(session, msg) {
       session.name = playerName;
       session.roomId = roomId;
 
-      // Assign or reconnect player role
       if (room.playerX && room.playerX.token === token) {
-        // Reconnect X
         room.playerX.socket = session.socket;
         room.playerX.connected = true;
         room.playerX.name = playerName;
-        session.role = 'X';
+        session.role = '1';
       } else if (room.playerO && room.playerO.token === token) {
-        // Reconnect O
         room.playerO.socket = session.socket;
         room.playerO.connected = true;
         room.playerO.name = playerName;
-        session.role = 'O';
+        session.role = '2';
       } else if (!room.playerX) {
-        // Seat X
         room.playerX = { token, name: playerName, socket: session.socket, connected: true };
-        session.role = 'X';
+        session.role = '1';
       } else if (!room.playerO) {
-        // Seat O
         room.playerO = { token, name: playerName, socket: session.socket, connected: true };
-        session.role = 'O';
+        session.role = '2';
       } else {
-        // Spectator
         room.spectators.set(token, { token, name: playerName, socket: session.socket });
         session.role = 'spectator';
       }
@@ -392,7 +408,8 @@ function handleClientMessage(session, msg) {
         type: 'JOINED_SUCCESS',
         token,
         role: session.role,
-        roomId
+        roomId,
+        gameType: room.gameType
       }));
 
       room.broadcast({
@@ -404,51 +421,132 @@ function handleClientMessage(session, msg) {
       break;
     }
 
+    // --- GAME 1: ULTIMATE TIC-TAC-TOE MOVE ---
     case 'MAKE_MOVE': {
       const room = rooms.get(session.roomId);
-      if (!room) return;
+      if (!room || room.gameType !== 'ttt9x9') return;
       room.touch();
 
-      if (session.role !== 'X' && session.role !== 'O') {
+      if (session.role !== '1' && session.role !== '2') {
         sendWs(session.socket, JSON.stringify({ type: 'ERROR', message: 'Spectators cannot make moves' }));
         return;
       }
 
-      if (room.pendingUndo) {
-        sendWs(session.socket, JSON.stringify({ type: 'ERROR', message: 'Resolve pending undo request before moving' }));
-        return;
-      }
-
+      const tttRole = session.role === '1' ? 'X' : 'O';
       const { boardIndex, cellIndex } = msg;
-      const result = room.game.makeMove(boardIndex, cellIndex, session.role);
+      const result = room.game.makeMove(boardIndex, cellIndex, tttRole);
 
       if (!result.valid) {
         sendWs(session.socket, JSON.stringify({ type: 'ERROR', message: result.reason || 'Invalid move' }));
         return;
       }
 
-      // Check if mini-board was won on this move
       const lastMove = room.game.moveHistory[room.game.moveHistory.length - 1];
-
       room.broadcast({
         type: 'MOVE_PLAYED',
+        gameType: 'ttt9x9',
         move: lastMove,
         gameState: room.game.getState()
       });
 
-      if (lastMove.wonBoard && lastMove.wonBoard !== 'T') {
-        room.broadcast({
-          type: 'BOARD_WON',
-          boardIndex: lastMove.boardIndex,
-          winner: lastMove.wonBoard
-        });
-      }
-
       if (result.state.winner) {
         room.broadcast({
           type: 'GAME_OVER',
-          winner: result.state.winner,
-          winningLine: result.state.macroWinningLine
+          winner: result.state.winner
+        });
+      }
+
+      room.broadcastState();
+      break;
+    }
+
+    // --- GAME 2: SNAKES AND LADDERS ROLL ---
+    case 'ROLL_SNAKES': {
+      const room = rooms.get(session.roomId);
+      if (!room || room.gameType !== 'snakes') return;
+      room.touch();
+
+      if (session.role !== '1' && session.role !== '2') return;
+      const pIdx = session.role === '1' ? 0 : 1;
+
+      const res = room.game.rollAndMove(pIdx);
+      if (!res.valid) {
+        sendWs(session.socket, JSON.stringify({ type: 'ERROR', message: res.reason }));
+        return;
+      }
+
+      room.broadcast({
+        type: 'SNAKES_MOVE',
+        move: res.move,
+        extraTurn: res.extraTurn,
+        gameState: room.game.getState()
+      });
+
+      if (res.state.winner !== null) {
+        room.broadcast({
+          type: 'GAME_OVER',
+          winner: `Player ${res.state.winner + 1}`
+        });
+      }
+
+      room.broadcastState();
+      break;
+    }
+
+    // --- GAME 3: LUDO ROLL & MOVE ---
+    case 'ROLL_LUDO': {
+      const room = rooms.get(session.roomId);
+      if (!room || room.gameType !== 'ludo') return;
+      room.touch();
+
+      if (session.role !== '1' && session.role !== '2') return;
+      const pIdx = session.role === '1' ? 0 : 1;
+
+      const res = room.game.rollDice(pIdx);
+      if (!res.valid) {
+        sendWs(session.socket, JSON.stringify({ type: 'ERROR', message: res.reason }));
+        return;
+      }
+
+      room.broadcast({
+        type: 'LUDO_ROLLED',
+        dice: res.dice,
+        validTokens: res.validTokens,
+        passed: res.passed,
+        gameState: room.game.getState()
+      });
+
+      room.broadcastState();
+      break;
+    }
+
+    case 'MOVE_LUDO_TOKEN': {
+      const room = rooms.get(session.roomId);
+      if (!room || room.gameType !== 'ludo') return;
+      room.touch();
+
+      if (session.role !== '1' && session.role !== '2') return;
+      const pIdx = session.role === '1' ? 0 : 1;
+      const { tokenIndex } = msg;
+
+      const res = room.game.moveToken(tokenIndex, pIdx);
+      if (!res.valid) {
+        sendWs(session.socket, JSON.stringify({ type: 'ERROR', message: res.reason }));
+        return;
+      }
+
+      room.broadcast({
+        type: 'LUDO_MOVED',
+        move: res.move,
+        captured: res.captured,
+        extraTurn: res.extraTurn,
+        gameState: room.game.getState()
+      });
+
+      if (res.state.winner !== null) {
+        room.broadcast({
+          type: 'GAME_OVER',
+          winner: `Player ${res.state.winner + 1}`
         });
       }
 
@@ -457,15 +555,15 @@ function handleClientMessage(session, msg) {
     }
 
     // ==========================================
-    // THE UNDO WORKFLOW
+    // UNIVERSAL UNDO PROTOCOL (ALL 3 GAMES)
     // ==========================================
     case 'REQUEST_UNDO': {
       const room = rooms.get(session.roomId);
       if (!room) return;
       room.touch();
 
-      if (session.role !== 'X' && session.role !== 'O') {
-        sendWs(session.socket, JSON.stringify({ type: 'ERROR', message: 'Only players can request an undo' }));
+      if (session.role !== '1' && session.role !== '2') {
+        sendWs(session.socket, JSON.stringify({ type: 'ERROR', message: 'Only active players can request an undo' }));
         return;
       }
 
@@ -479,8 +577,8 @@ function handleClientMessage(session, msg) {
         return;
       }
 
-      const opponentRole = session.role === 'X' ? 'O' : 'X';
-      const opponent = opponentRole === 'X' ? room.playerX : room.playerO;
+      const opponentRole = session.role === '1' ? '2' : '1';
+      const opponent = opponentRole === '1' ? room.playerX : room.playerO;
 
       if (!opponent || !opponent.connected) {
         sendWs(session.socket, JSON.stringify({ type: 'ERROR', message: 'Opponent is not connected' }));
@@ -488,9 +586,8 @@ function handleClientMessage(session, msg) {
       }
 
       const lastMove = room.game.moveHistory[room.game.moveHistory.length - 1];
-      const timeoutDuration = 25; // 25 seconds
+      const timeoutDuration = 25;
 
-      // Store pending undo
       const timeoutTimer = setTimeout(() => {
         if (room.pendingUndo) {
           room.pendingUndo = null;
@@ -504,6 +601,15 @@ function handleClientMessage(session, msg) {
         }
       }, timeoutDuration * 1000);
 
+      let details = `Last action by Player ${session.role}`;
+      if (room.gameType === 'ttt9x9') {
+        details = `Move #${lastMove.moveNumber}: ${lastMove.player} at ${lastMove.boardName} (${lastMove.cellName})`;
+      } else if (room.gameType === 'snakes') {
+        details = `Turn #${lastMove.moveNumber}: Rolled ${lastMove.dice} (from ${lastMove.from} to ${lastMove.to})`;
+      } else if (room.gameType === 'ludo') {
+        details = `Turn #${lastMove.moveNumber}: Moved Token ${lastMove.tokenIndex + 1} with roll ${lastMove.dice}`;
+      }
+
       room.pendingUndo = {
         requesterRole: session.role,
         requesterName: session.name,
@@ -511,27 +617,25 @@ function handleClientMessage(session, msg) {
         expiresAt: Date.now() + (timeoutDuration * 1000),
         timeoutTimer,
         moveIndex: room.game.moveHistory.length - 1,
-        lastMove
+        details
       };
 
-      // Notify the requester
       sendWs(session.socket, JSON.stringify({
         type: 'UNDO_REQUEST_SENT',
         expiresIn: timeoutDuration
       }));
 
-      // Notify the opponent with prominent action prompt
       room.sendToRole(opponentRole, {
         type: 'UNDO_REQUEST_RECEIVED',
         requesterRole: session.role,
         requesterName: session.name,
-        lastMove,
+        details,
         expiresIn: timeoutDuration
       });
 
       room.broadcast({
         type: 'NOTIFICATION',
-        text: `${session.name} (Player ${session.role}) requested to undo their last move`
+        text: `${session.name} (Player ${session.role}) requested to undo their last turn`
       });
 
       room.broadcastState();
@@ -543,20 +647,18 @@ function handleClientMessage(session, msg) {
       if (!room || !room.pendingUndo) return;
       room.touch();
 
-      const opponentRole = room.pendingUndo.requesterRole === 'X' ? 'O' : 'X';
+      const opponentRole = room.pendingUndo.requesterRole === '1' ? '2' : '1';
       if (session.role !== opponentRole) {
-        sendWs(session.socket, JSON.stringify({ type: 'ERROR', message: 'Only the opponent can accept or reject undo' }));
+        sendWs(session.socket, JSON.stringify({ type: 'ERROR', message: 'Only opponent can respond to undo' }));
         return;
       }
 
       clearTimeout(room.pendingUndo.timeoutTimer);
       const { accept } = msg;
       const requesterRole = room.pendingUndo.requesterRole;
-      const requesterName = room.pendingUndo.requesterName;
       room.pendingUndo = null;
 
       if (accept === true) {
-        // Rollback 1 move
         const undoRes = room.game.undo(1);
         if (undoRes.success) {
           room.broadcast({
@@ -566,11 +668,10 @@ function handleClientMessage(session, msg) {
             byName: session.name,
             requesterRole,
             gameState: room.game.getState(),
-            message: `${session.name} accepted the undo request! Move reverted.`
+            message: `${session.name} accepted the undo! Rolled back 1 turn.`
           });
         }
       } else {
-        // Rejected
         room.broadcast({
           type: 'UNDO_RESOLVED',
           accepted: false,
@@ -578,7 +679,7 @@ function handleClientMessage(session, msg) {
           byName: session.name,
           requesterRole,
           reason: 'rejected',
-          message: `${session.name} rejected the undo request.`
+          message: `${session.name} declined the undo request.`
         });
       }
 
@@ -634,8 +735,8 @@ function handleClientMessage(session, msg) {
       if (!room) return;
       room.touch();
 
-      if (session.role !== 'X' && session.role !== 'O') return;
-      const opponentRole = session.role === 'X' ? 'O' : 'X';
+      if (session.role !== '1' && session.role !== '2') return;
+      const opponentRole = session.role === '1' ? '2' : '1';
 
       room.pendingRematch = { requesterRole: session.role, requesterName: session.name };
 
@@ -679,23 +780,6 @@ function handleClientMessage(session, msg) {
       room.broadcastState();
       break;
     }
-
-    case 'RESIGN': {
-      const room = rooms.get(session.roomId);
-      if (!room) return;
-      if (session.role !== 'X' && session.role !== 'O') return;
-      if (room.game.winner) return;
-
-      const winner = session.role === 'X' ? 'O' : 'X';
-      room.game.winner = winner;
-      room.broadcast({
-        type: 'GAME_OVER',
-        winner,
-        reason: `${session.name} (Player ${session.role}) resigned`
-      });
-      room.broadcastState();
-      break;
-    }
   }
 }
 
@@ -704,9 +788,9 @@ function handleDisconnect(session) {
   const room = rooms.get(session.roomId);
   if (!room) return;
 
-  if (session.role === 'X' && room.playerX && room.playerX.token === session.token) {
+  if (session.role === '1' && room.playerX && room.playerX.token === session.token) {
     room.playerX.connected = false;
-  } else if (session.role === 'O' && room.playerO && room.playerO.token === session.token) {
+  } else if (session.role === '2' && room.playerO && room.playerO.token === session.token) {
     room.playerO.connected = false;
   } else if (session.role === 'spectator') {
     room.spectators.delete(session.token);
@@ -720,7 +804,6 @@ function handleDisconnect(session) {
   room.broadcastState();
 }
 
-// Prune inactive rooms every 30 minutes
 setInterval(() => {
   const cutoff = Date.now() - (4 * 60 * 60 * 1000);
   for (const [id, r] of rooms.entries()) {
@@ -733,7 +816,6 @@ setInterval(() => {
   }
 }, 30 * 60 * 1000);
 
-// Heartbeat ping every 30s
 setInterval(() => {
   for (const r of rooms.values()) {
     const clients = [];
@@ -743,18 +825,17 @@ setInterval(() => {
       if (spec.socket) clients.push(spec.socket);
     }
     for (const ws of clients) {
-      sendWs(ws, Buffer.alloc(0), 0x9); // Ping
+      sendWs(ws, Buffer.alloc(0), 0x9);
     }
   }
 }, 30000);
 
 server.listen(PORT, () => {
   console.log(`===============================================`);
-  console.log(`🎮 ULTIMATE TIC-TAC-TOE 9X9 REAL-TIME SERVER`);
+  console.log(`🎮 MULTIPLAYER BOARD GAME HUB (TTT 9X9, LUDO, SNAKES)`);
   console.log(`📡 Server running at http://localhost:${PORT}`);
   console.log(`⚡ Zero npm dependencies required`);
   console.log(`===============================================`);
 });
 
 module.exports = server;
-

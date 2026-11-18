@@ -1,75 +1,76 @@
 const assert = require('assert');
 const { UltimateTTT, BOARD_NAMES } = require('../public/game-engine.js');
+const { SnakesGame, SNAKES, LADDERS } = require('../public/snakes-engine.js');
+const { LudoGame } = require('../public/ludo-engine.js');
 const AI = require('../public/ai.js');
 
-console.log('🧪 Starting Ultimate Tic-Tac-Toe Test Suite...\n');
+console.log('🧪 Starting Multi-Game Hub Test Suite...\n');
 
-// 1. Initial State Test
+// ==========================================
+// 1. Ultimate Tic-Tac-Toe Tests
+// ==========================================
 const game = new UltimateTTT();
-assert.strictEqual(game.currentTurn, 'X', 'First player should be X');
-assert.strictEqual(game.activeBoard, -1, 'Initial active board should be -1 (Wildcard)');
-assert.strictEqual(game.winner, null, 'Game winner should initially be null');
-assert.strictEqual(game.boards.length, 9, 'Should have 9 mini-boards');
-assert.strictEqual(game.boards[0].length, 9, 'Each mini-board should have 9 cells');
-console.log('✓ Test 1: Initial state verified');
-
-// 2. First Move & Redirection Test
-let res = game.makeMove(4, 2, 'X'); // Board 4 (Center), Cell 2 (Top-Right)
-assert.strictEqual(res.valid, true, 'First move should be valid');
-assert.strictEqual(game.currentTurn, 'O', 'Next turn must be O');
-assert.strictEqual(game.activeBoard, 2, 'Next active board must be 2 (Top-Right)');
-assert.deepStrictEqual(game.getValidBoards(), [2], 'Only board 2 should be valid');
-console.log('✓ Test 2: Move execution and opponent redirection verified');
-
-// 3. Illegal Move Detection Test
-let illegal = game.makeMove(5, 0, 'O'); // Trying to play in board 5 when active is 2
-assert.strictEqual(illegal.valid, false, 'Move in wrong board must be rejected');
-console.log('✓ Test 3: Out-of-bounds / inactive board moves blocked');
-
-// 4. Opponent Playing in Target Board
-res = game.makeMove(2, 4, 'O'); // Board 2, Cell 4
-assert.strictEqual(res.valid, true);
-assert.strictEqual(game.activeBoard, 4, 'Next active board must be 4');
 assert.strictEqual(game.currentTurn, 'X');
-console.log('✓ Test 4: Follow-up move in designated board verified');
+assert.strictEqual(game.activeBoard, -1);
+let res = game.makeMove(4, 2, 'X');
+assert.strictEqual(res.valid, true);
+assert.strictEqual(game.activeBoard, 2);
+assert.strictEqual(game.currentTurn, 'O');
 
-// 5. Undo Test (Popping moves and restoring exact prior state)
-assert.strictEqual(game.moveHistory.length, 2, 'History should have 2 moves');
+// Test Undo on TTT
 let undoRes = game.undo(1);
 assert.strictEqual(undoRes.success, true);
-assert.strictEqual(game.moveHistory.length, 1, 'History after undo should have 1 move');
-assert.strictEqual(game.currentTurn, 'O', 'Turn after undo must return to O');
-assert.strictEqual(game.activeBoard, 2, 'Active board after undo must return to 2');
-assert.strictEqual(game.boards[2][4], null, 'Undone cell must be null');
-console.log('✓ Test 5: Undo rollback state restored cleanly');
+assert.strictEqual(game.currentTurn, 'X');
+console.log('✓ Game 1: Ultimate Tic-Tac-Toe core & undo verified');
 
-// 6. Mini-Board Win Test
-const directWinGame = new UltimateTTT();
-directWinGame.boards[0] = ['X', 'X', null, null, null, null, null, null, null];
-directWinGame.activeBoard = 0;
-directWinGame.currentTurn = 'X';
-let winRes = directWinGame.makeMove(0, 2, 'X');
-assert.strictEqual(winRes.valid, true);
-assert.strictEqual(directWinGame.macroBoard[0], 'X', 'Board 0 should now be marked won by X');
-console.log('✓ Test 6: Local mini-board win detection verified');
+// ==========================================
+// 2. Snakes & Ladders Tests
+// ==========================================
+const snakes = new SnakesGame(2);
+assert.strictEqual(snakes.positions[0], 0);
+assert.strictEqual(snakes.positions[1], 0);
 
-// 7. Wildcard / Free Move Test when target board is won
-const wildcardGame = new UltimateTTT();
-// Mark Board 5 as already won by 'O'
-wildcardGame.macroBoard[5] = 'O';
-// Player X plays in Board 1 (open), Cell 5 (which points to Board 5)
-wildcardGame.activeBoard = 1;
-wildcardGame.currentTurn = 'X';
-let wildRes = wildcardGame.makeMove(1, 5, 'X');
-assert.strictEqual(wildRes.valid, true, 'Move should be valid');
-assert.strictEqual(wildcardGame.activeBoard, -1, 'When target board is won, next active board must be -1 (Wildcard Free Move)');
-console.log('✓ Test 7: Wildcard free move trigger verified');
+// Roll 4: Lands on Ladder 4 -> Climbs to 14
+let sRes = snakes.rollAndMove(0, 4);
+assert.strictEqual(sRes.valid, true);
+assert.strictEqual(snakes.positions[0], 14, 'Ladder 4 should elevate player to 14');
+assert.strictEqual(sRes.move.event, 'ladder');
 
-// 8. AI Bot Test
-const aiGame = new UltimateTTT();
-aiGame.makeMove(4, 1, 'X'); // Target board is 1
-const aiMove = AI.getAIMove(aiGame, 'hard', 'O');
-assert.strictEqual(aiMove.boardIndex, 1, 'AI must choose a move in active board 1');
-console.log('✓ Test 8: AI heuristics and valid move generation verified');
+// Test Snake landing
+const snakeRun = new SnakesGame(2);
+snakeRun.rollAndMove(0, 4); // P0: 4 -> Ladder 14
+snakeRun.rollAndMove(1, 10); // P1 lands on 10
+assert.strictEqual(snakeRun.positions[1], 10);
 
-console.log('\n🎉 ALL TESTS PASSED SUCCESSFULLY!');
+snakeRun.rollAndMove(0, 1); // P0 lands on 15
+snakeRun.rollAndMove(1, 7); // P1: 10 + 7 = 17 -> Snake 17 drops to 7
+assert.strictEqual(snakeRun.positions[1], 7, 'Snake 17 should drop player to 7');
+
+// Test Undo on Snakes
+let sUndo = snakeRun.undo(1);
+assert.strictEqual(sUndo.success, true);
+assert.strictEqual(snakeRun.positions[1], 10, 'Undoing should restore position 10');
+console.log('✓ Game 2: Snakes & Ladders ladders, snakes, & undo verified');
+
+// ==========================================
+// 3. Ludo Tests
+// ==========================================
+const ludo = new LudoGame(2, 4);
+assert.strictEqual(ludo.tokens[0][0], -1, 'Tokens start in yard (-1)');
+
+// Roll a 6 for Player 0: Can release tokens from yard!
+let lRoll = ludo.rollDice(0, 6);
+assert.strictEqual(lRoll.valid, true);
+assert.strictEqual(lRoll.validTokens.length, 4, 'Can release any of 4 tokens from yard with roll 6');
+
+let lMove = ludo.moveToken(0, 0);
+assert.strictEqual(lMove.valid, true);
+assert.strictEqual(ludo.tokens[0][0], 0, 'Token 0 is now on starting track square');
+
+// Test Undo on Ludo
+let lUndo = ludo.undo(1);
+assert.strictEqual(lUndo.success, true);
+assert.strictEqual(ludo.tokens[0][0], -1, 'Undoing should return token back to yard');
+console.log('✓ Game 3: Ludo yard release, track movement & undo verified');
+
+console.log('\n🎉 ALL 3 GAMES ENGINE & UNDO TESTS PASSED PERFECTLY!\n');

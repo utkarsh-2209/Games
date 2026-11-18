@@ -53,9 +53,9 @@ async function runIntegrationTest() {
 
   const c1Join = c1Messages.find(m => m.type === 'JOINED_SUCCESS');
   const c2Join = c2Messages.find(m => m.type === 'JOINED_SUCCESS');
-  assert.strictEqual(c1Join.role, 'X', 'Alice must be Player X');
-  assert.strictEqual(c2Join.role, 'O', 'Bob must be Player O');
-  console.log('✓ Step 1: Alice assigned X, Bob assigned O');
+  assert.strictEqual(c1Join.role, '1', 'Alice must be Player 1');
+  assert.strictEqual(c2Join.role, '2', 'Bob must be Player 2');
+  console.log('✓ Step 1: Alice assigned Player 1, Bob assigned Player 2');
 
   // Alice makes Move 1: Board 4 (Center), Cell 2 (Top-Right)
   ws1.send(JSON.stringify({
@@ -93,7 +93,7 @@ async function runIntegrationTest() {
   // Alice should receive UNDO_REQUEST_RECEIVED
   const undoPrompt = c1Messages.find(m => m.type === 'UNDO_REQUEST_RECEIVED');
   assert(undoPrompt, 'Alice must receive the UNDO_REQUEST_RECEIVED prompt');
-  assert.strictEqual(undoPrompt.requesterRole, 'O', 'Requester role must be O');
+  assert.strictEqual(undoPrompt.requesterRole, '2', 'Requester role must be 2');
   assert.strictEqual(undoPrompt.requesterName, 'Bob', 'Requester name must be Bob');
   console.log('✓ Step 4: Alice received Undo Request prompt from Bob');
 
